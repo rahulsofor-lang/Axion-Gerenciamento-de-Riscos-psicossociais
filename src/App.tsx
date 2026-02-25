@@ -469,8 +469,11 @@ function RegisterView({
         companyData.password = formData.password;
         const docRef = await addDoc(collection(db, 'companies'), companyData);
         const newCompany = { ...companyData, id: docRef.id };
+        
+        // Update state and then navigate
         setCurrentCompany(newCompany);
-        showMessage(`Empresa salva com sucesso! Código: ${accessCode}`);
+        setView('manager-panel');
+        showMessage(`Empresa cadastrada! Código: ${accessCode}`, 'success');
       } else {
         await updateDoc(doc(db, 'companies', editCompany.id!), {
           name: formData.name,
@@ -479,11 +482,11 @@ function RegisterView({
           sectors,
           functions,
         });
-        setCurrentCompany({ ...editCompany, ...companyData });
-        showMessage('Empresa atualizada com sucesso!');
+        const updatedCompany = { ...editCompany, ...companyData };
+        setCurrentCompany(updatedCompany);
+        setView('manager-panel');
+        showMessage('Dados da empresa atualizados!', 'success');
       }
-
-      setView('manager-panel');
     } catch (error) {
       console.error(error);
       showMessage('Erro ao salvar empresa.', 'error');
