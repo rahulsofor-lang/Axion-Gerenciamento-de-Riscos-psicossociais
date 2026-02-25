@@ -135,7 +135,7 @@ export default function App() {
 
           {view === 'home' && (
             <motion.div key="view-home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <HomeView setView={setView} setCurrentCompany={setCurrentCompany} />
+              <HomeView setView={setView} />
             </motion.div>
           )}
           {view === 'token-validation' && (
@@ -143,7 +143,6 @@ export default function App() {
               <TokenValidationView 
                 setView={setView} 
                 showMessage={showMessage} 
-                setCurrentCompany={setCurrentCompany}
               />
             </motion.div>
           )}
@@ -212,7 +211,7 @@ export default function App() {
   );
 }
 
-function HomeView({ setView, setCurrentCompany }: { setView: (v: View) => void, setCurrentCompany: (c: Company | null) => void }) {
+function HomeView({ setView }: { setView: (v: View) => void }) {
   const buttons = [
     { 
       id: 'collaborator-login', 
@@ -287,10 +286,7 @@ function HomeView({ setView, setCurrentCompany }: { setView: (v: View) => void, 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            onClick={() => {
-              if (btn.id === 'token-validation') setCurrentCompany(null);
-              setView(btn.id as View);
-            }}
+            onClick={() => setView(btn.id as View)}
             className={cn(
               "relative overflow-hidden flex flex-col items-start p-8 rounded-3xl transition-all transform hover:scale-[1.02] active:scale-[0.98] text-white gap-4 group text-left",
               "bg-gradient-to-br", btn.color,
@@ -315,7 +311,7 @@ function HomeView({ setView, setCurrentCompany }: { setView: (v: View) => void, 
   );
 }
 
-function TokenValidationView({ setView, showMessage, setCurrentCompany }: { setView: (v: View) => void, showMessage: (t: string, type?: 'success' | 'error') => void, setCurrentCompany: (c: Company | null) => void }) {
+function TokenValidationView({ setView, showMessage }: { setView: (v: View) => void, showMessage: (t: string, type?: 'success' | 'error') => void }) {
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -356,7 +352,6 @@ function TokenValidationView({ setView, showMessage, setCurrentCompany }: { setV
       // Valid token! Mark as used
       await updateDoc(doc(db, 'registration_tokens', tokenDoc.id), { used: true });
       
-      setCurrentCompany(null); // Ensure we are in "new" mode
       showMessage('TOKEN REGISTRADO COM SUCESSO', 'success');
       setView('register');
     } catch (error) {
@@ -460,11 +455,6 @@ function RegisterView({
     setLoading(true);
     try {
       const accessCode = editCompany?.accessCode || generateAccessCode();
-      
-      if (!accessCode) {
-        throw new Error('Falha ao gerar código de acesso.');
-      }
-
       const companyData: Company = {
         name: formData.name,
         cnpj: formData.cnpj,
@@ -478,21 +468,12 @@ function RegisterView({
       if (!editCompany) {
         companyData.password = formData.password;
         const docRef = await addDoc(collection(db, 'companies'), companyData);
-        
-        if (!docRef.id) {
-          throw new Error('Falha ao criar documento no banco de dados.');
-        }
-
         const newCompany = { ...companyData, id: docRef.id };
         
-        // Critical: Update state FIRST
+        // Update state and then navigate
         setCurrentCompany(newCompany);
-        
-        // Small delay to ensure state is processed before navigation
-        setTimeout(() => {
-          setView('manager-panel');
-          showMessage(`Empresa cadastrada! Código: ${accessCode}`, 'success');
-        }, 100);
+        setView('manager-panel');
+        showMessage(`Empresa cadastrada! Código: ${accessCode}`, 'success');
       } else {
         await updateDoc(doc(db, 'companies', editCompany.id!), {
           name: formData.name,
@@ -503,15 +484,12 @@ function RegisterView({
         });
         const updatedCompany = { ...editCompany, ...companyData };
         setCurrentCompany(updatedCompany);
-        
-        setTimeout(() => {
-          setView('manager-panel');
-          showMessage('Dados da empresa atualizados!', 'success');
-        }, 100);
+        setView('manager-panel');
+        showMessage('Dados da empresa atualizados!', 'success');
       }
-    } catch (error: any) {
-      console.error('Erro no handleSave:', error);
-      showMessage(error.message || 'Erro ao salvar empresa.', 'error');
+    } catch (error) {
+      console.error(error);
+      showMessage('Erro ao salvar empresa.', 'error');
     } finally {
       setLoading(false);
     }
@@ -889,9 +867,7 @@ function ManagerPanelView({
         <div className="bg-white p-8 rounded-2xl shadow-sm border-l-4 border-orange-500">
           <p className="text-slate-500 font-semibold text-sm uppercase tracking-wider">Progresso Geral</p>
           <p className="text-4xl font-black text-slate-800 mt-2">
-            {Number(company.employeeCount) > 0 
-              ? Math.min(100, Math.round((stats.total / Number(company.employeeCount)) * 100)) 
-              : 0}%
+            {company.employeeCount > 0 ? Math.round((stats.total / company.employeeCount) * 100) : 0}%
           </p>
         </div>
       </div>
@@ -906,29 +882,18 @@ function ManagerPanelView({
             {company.sectors.length > 0 ? (
               company.sectors.map((sector, i) => {
                 const count = stats.bySector[sector] || 0;
-                // Percentage relative to total responses (distribution)
-                const distPercentage = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
-                // Percentage relative to total company employees (impact)
-                const impactPercentage = Number(company.employeeCount) > 0 
-                  ? Math.round((count / Number(company.employeeCount)) * 100) 
-                  : 0;
+                const percentage = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
                 
                 return (
                   <div key={i} className="space-y-2">
                     <div className="flex justify-between items-end">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-slate-700">{sector}</span>
-                        <span className="text-xs text-slate-400 font-medium">{count} respondentes</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-black text-blue-600">{distPercentage}%</span>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">da amostragem</p>
-                      </div>
+                      <span className="font-bold text-slate-700">{sector}</span>
+                      <span className="text-sm font-medium text-slate-500">{count} respondentes ({percentage}%)</span>
                     </div>
                     <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                       <motion.div 
                         initial={{ width: 0 }}
-                        animate={{ width: `${distPercentage}%` }}
+                        animate={{ width: `${percentage}%` }}
                         className="h-full bg-blue-500 rounded-full"
                       />
                     </div>
