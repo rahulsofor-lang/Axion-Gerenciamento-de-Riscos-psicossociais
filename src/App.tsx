@@ -48,6 +48,20 @@ import { Company, TechnicalResponsible, DomainResult, RiskLevel, Assessment } fr
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { QUESTIONS, RESPONSE_OPTIONS } from './constants';
+import { 
+  Document, 
+  Packer, 
+  Paragraph, 
+  TextRun, 
+  ImageRun, 
+  AlignmentType, 
+  Table, 
+  TableRow, 
+  TableCell, 
+  WidthType 
+} from 'docx';
+import { saveAs } from 'file-saver';
+import { toPng } from 'html-to-image';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -1211,6 +1225,163 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
     showMessage('CSV exportado com sucesso!');
   };
 
+  const exportDocx = async () => {
+    if (!selectedCompany || assessments.length === 0 || !techResponsible) {
+      showMessage('Dados insuficientes para gerar o relatório DOCX.', 'error');
+      return;
+    }
+
+    showMessage('Gerando relatório DOCX, por favor aguarde...');
+
+    try {
+      const domainsChart = document.getElementById('chart-domains');
+      const distributionChart = document.getElementById('chart-distribution');
+
+      let domainsImg = '';
+      let distributionImg = '';
+
+      if (domainsChart) {
+        domainsImg = await toPng(domainsChart, { backgroundColor: '#ffffff' });
+      }
+      if (distributionChart) {
+        distributionImg = await toPng(distributionChart, { backgroundColor: '#ffffff' });
+      }
+
+      const base64ToUint8Array = (base64: string) => {
+        const binaryString = window.atob(base64.split(',')[1]);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+      };
+
+      const doc = new Document({
+        sections: [
+          {
+            properties: {},
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: "RELATÓRIO DE ANÁLISE DE RISCOS PSICOSSOCIAIS (NR-1)",
+                    bold: true,
+                    size: 32,
+                  }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 400 },
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `Empresa: ${selectedCompany.name}`, bold: true }),
+                ],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `CNPJ: ${selectedCompany.cnpj}` }),
+                ],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `Data do Relatório: ${new Date().toLocaleDateString('pt-BR')}` }),
+                ],
+                spacing: { after: 400 },
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: "RESPONSÁVEL TÉCNICO", bold: true }),
+                ],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `Nome: ${techResponsible.name}` }),
+                ],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `Registro Profissional: ${techResponsible.registrationNumber}` }),
+                ],
+                spacing: { after: 400 },
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: "GRÁFICOS DE ANÁLISE", bold: true, size: 24 }),
+                ],
+                spacing: { after: 200 },
+              }),
+              ...(domainsImg ? [
+                new Paragraph({
+                  children: [
+                    new ImageRun({
+                      data: base64ToUint8Array(domainsImg),
+                      transformation: { width: 500, height: 300 },
+                    } as any),
+                  ],
+                  alignment: AlignmentType.CENTER,
+                }),
+                new Paragraph({ 
+                  children: [new TextRun({ text: "Figura 1: Domínios de Risco" })],
+                  alignment: AlignmentType.CENTER, 
+                  spacing: { after: 400 } 
+                }),
+              ] : []),
+              ...(distributionImg ? [
+                new Paragraph({
+                  children: [
+                    new ImageRun({
+                      data: base64ToUint8Array(distributionImg),
+                      transformation: { width: 400, height: 300 },
+                    } as any),
+                  ],
+                  alignment: AlignmentType.CENTER,
+                }),
+                new Paragraph({ 
+                  children: [new TextRun({ text: "Figura 2: Distribuição de Riscos" })],
+                  alignment: AlignmentType.CENTER, 
+                  spacing: { after: 400 } 
+                }),
+              ] : []),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: "TABELA DE RESULTADOS POR DOMÍNIO", bold: true, size: 24 }),
+                ],
+                spacing: { after: 200 },
+              }),
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [
+                  new TableRow({
+                    children: [
+                      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Domínio", bold: true })] })] }),
+                      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Score", bold: true })] })] }),
+                      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Classificação", bold: true })] })] }),
+                    ],
+                  }),
+                  ...reportData.map(row => new TableRow({
+                    children: [
+                      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: row.domain })] })] }),
+                      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: row.score.toString() })] })] }),
+                      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: row.classification })] })] }),
+                    ],
+                  })),
+                ],
+              }),
+            ],
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      saveAs(blob, `Relatorio_NR1_${selectedCompany.name.replace(/\s+/g, '_')}.docx`);
+      showMessage('Relatório DOCX gerado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao gerar DOCX:', error);
+      showMessage('Erro ao gerar relatório DOCX.', 'error');
+    }
+  };
+
   const getRiskColor = (level: RiskLevel) => {
     if (level === 'Leve') return '#10b981'; // Emerald 500
     if (level === 'Moderado') return '#f59e0b'; // Amber 500
@@ -1340,6 +1511,14 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
                   >
                     GERAR RELATÓRIO
                   </button>
+                  {showReport && (
+                    <button 
+                      onClick={exportDocx}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-all flex items-center gap-2"
+                    >
+                      EXPORTAR DOCX
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1351,7 +1530,7 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
                 >
                   {/* Charts */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm h-[400px]">
+                    <div id="chart-domains" className="bg-white p-6 rounded-2xl shadow-sm h-[400px]">
                       <h4 className="font-bold text-slate-800 mb-6">Domínios de Risco</h4>
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={reportData} layout="vertical" margin={{ left: 40, right: 20 }}>
@@ -1368,7 +1547,7 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
                       </ResponsiveContainer>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm h-[400px] flex flex-col items-center">
+                    <div id="chart-distribution" className="bg-white p-6 rounded-2xl shadow-sm h-[400px] flex flex-col items-center">
                       <h4 className="font-bold text-slate-800 mb-6 w-full">Distribuição de Riscos</h4>
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
