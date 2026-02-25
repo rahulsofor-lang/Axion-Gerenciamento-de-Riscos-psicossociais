@@ -135,7 +135,7 @@ export default function App() {
 
           {view === 'home' && (
             <motion.div key="view-home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <HomeView setView={setView} />
+              <HomeView setView={setView} setCurrentCompany={setCurrentCompany} />
             </motion.div>
           )}
           {view === 'token-validation' && (
@@ -143,6 +143,7 @@ export default function App() {
               <TokenValidationView 
                 setView={setView} 
                 showMessage={showMessage} 
+                setCurrentCompany={setCurrentCompany}
               />
             </motion.div>
           )}
@@ -211,7 +212,7 @@ export default function App() {
   );
 }
 
-function HomeView({ setView }: { setView: (v: View) => void }) {
+function HomeView({ setView, setCurrentCompany }: { setView: (v: View) => void, setCurrentCompany: (c: Company | null) => void }) {
   const buttons = [
     { 
       id: 'collaborator-login', 
@@ -286,7 +287,10 @@ function HomeView({ setView }: { setView: (v: View) => void }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            onClick={() => setView(btn.id as View)}
+            onClick={() => {
+              if (btn.id === 'token-validation') setCurrentCompany(null);
+              setView(btn.id as View);
+            }}
             className={cn(
               "relative overflow-hidden flex flex-col items-start p-8 rounded-3xl transition-all transform hover:scale-[1.02] active:scale-[0.98] text-white gap-4 group text-left",
               "bg-gradient-to-br", btn.color,
@@ -311,7 +315,7 @@ function HomeView({ setView }: { setView: (v: View) => void }) {
   );
 }
 
-function TokenValidationView({ setView, showMessage }: { setView: (v: View) => void, showMessage: (t: string, type?: 'success' | 'error') => void }) {
+function TokenValidationView({ setView, showMessage, setCurrentCompany }: { setView: (v: View) => void, showMessage: (t: string, type?: 'success' | 'error') => void, setCurrentCompany: (c: Company | null) => void }) {
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -352,6 +356,7 @@ function TokenValidationView({ setView, showMessage }: { setView: (v: View) => v
       // Valid token! Mark as used
       await updateDoc(doc(db, 'registration_tokens', tokenDoc.id), { used: true });
       
+      setCurrentCompany(null); // Ensure we are in "new" mode
       showMessage('TOKEN REGISTRADO COM SUCESSO', 'success');
       setView('register');
     } catch (error) {
@@ -455,6 +460,11 @@ function RegisterView({
     setLoading(true);
     try {
       const accessCode = editCompany?.accessCode || generateAccessCode();
+      
+      if (!accessCode) {
+        throw new Error('Falha ao gerar código de acesso.');
+      }
+
       const companyData: Company = {
         name: formData.name,
         cnpj: formData.cnpj,
@@ -468,12 +478,21 @@ function RegisterView({
       if (!editCompany) {
         companyData.password = formData.password;
         const docRef = await addDoc(collection(db, 'companies'), companyData);
+        
+        if (!docRef.id) {
+          throw new Error('Falha ao criar documento no banco de dados.');
+        }
+
         const newCompany = { ...companyData, id: docRef.id };
         
-        // Update state and then navigate
+        // Critical: Update state FIRST
         setCurrentCompany(newCompany);
-        setView('manager-panel');
-        showMessage(`Empresa cadastrada! Código: ${accessCode}`, 'success');
+        
+        // Small delay to ensure state is processed before navigation
+        setTimeout(() => {
+          setView('manager-panel');
+          showMessage(`Empresa cadastrada! Código: ${accessCode}`, 'success');
+        }, 100);
       } else {
         await updateDoc(doc(db, 'companies', editCompany.id!), {
           name: formData.name,
@@ -484,12 +503,15 @@ function RegisterView({
         });
         const updatedCompany = { ...editCompany, ...companyData };
         setCurrentCompany(updatedCompany);
-        setView('manager-panel');
-        showMessage('Dados da empresa atualizados!', 'success');
+        
+        setTimeout(() => {
+          setView('manager-panel');
+          showMessage('Dados da empresa atualizados!', 'success');
+        }, 100);
       }
-    } catch (error) {
-      console.error(error);
-      showMessage('Erro ao salvar empresa.', 'error');
+    } catch (error: any) {
+      console.error('Erro no handleSave:', error);
+      showMessage(error.message || 'Erro ao salvar empresa.', 'error');
     } finally {
       setLoading(false);
     }
