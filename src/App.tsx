@@ -357,7 +357,7 @@ function RegisterView({
         const docRef = await addDoc(collection(db, 'companies'), companyData);
         const newCompany = { ...companyData, id: docRef.id };
         setCurrentCompany(newCompany);
-        alert(`Empresa salva com sucesso!\n\nCÓDIGO DE ACESSO: ${accessCode}\n\nPor favor, grave este código. Ele servirá como senha para acessar o painel dos colaboradores e do gestor.`);
+        showMessage(`Empresa salva com sucesso! Código: ${accessCode}`);
       } else {
         await updateDoc(doc(db, 'companies', editCompany.id!), {
           name: formData.name,
