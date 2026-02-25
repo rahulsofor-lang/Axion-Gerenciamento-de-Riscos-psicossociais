@@ -867,7 +867,9 @@ function ManagerPanelView({
         <div className="bg-white p-8 rounded-2xl shadow-sm border-l-4 border-orange-500">
           <p className="text-slate-500 font-semibold text-sm uppercase tracking-wider">Progresso Geral</p>
           <p className="text-4xl font-black text-slate-800 mt-2">
-            {company.employeeCount > 0 ? Math.round((stats.total / company.employeeCount) * 100) : 0}%
+            {Number(company.employeeCount) > 0 
+              ? Math.min(100, Math.round((stats.total / Number(company.employeeCount)) * 100)) 
+              : 0}%
           </p>
         </div>
       </div>
@@ -882,18 +884,29 @@ function ManagerPanelView({
             {company.sectors.length > 0 ? (
               company.sectors.map((sector, i) => {
                 const count = stats.bySector[sector] || 0;
-                const percentage = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
+                // Percentage relative to total responses (distribution)
+                const distPercentage = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
+                // Percentage relative to total company employees (impact)
+                const impactPercentage = Number(company.employeeCount) > 0 
+                  ? Math.round((count / Number(company.employeeCount)) * 100) 
+                  : 0;
                 
                 return (
                   <div key={i} className="space-y-2">
                     <div className="flex justify-between items-end">
-                      <span className="font-bold text-slate-700">{sector}</span>
-                      <span className="text-sm font-medium text-slate-500">{count} respondentes ({percentage}%)</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-700">{sector}</span>
+                        <span className="text-xs text-slate-400 font-medium">{count} respondentes</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-black text-blue-600">{distPercentage}%</span>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">da amostragem</p>
+                      </div>
                     </div>
                     <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                       <motion.div 
                         initial={{ width: 0 }}
-                        animate={{ width: `${percentage}%` }}
+                        animate={{ width: `${distPercentage}%` }}
                         className="h-full bg-blue-500 rounded-full"
                       />
                     </div>
