@@ -18,7 +18,11 @@ import {
   ChevronRight,
   Save,
   ArrowLeft,
-  MessageCircle
+  MessageCircle,
+  Key,
+  Ticket,
+  Clock,
+  CheckCircle2
 } from 'lucide-react';
 import { IMaskInput } from 'react-imask';
 import { db } from './firebase';
@@ -30,7 +34,8 @@ import {
   getDocs, 
   doc, 
   updateDoc,
-  onSnapshot
+  onSnapshot,
+  deleteDoc
 } from 'firebase/firestore';
 import { 
   BarChart, 
@@ -44,7 +49,7 @@ import {
   PieChart,
   Pie
 } from 'recharts';
-import { Company, TechnicalResponsible, DomainResult, RiskLevel, Assessment } from './types';
+import { Company, TechnicalResponsible, DomainResult, RiskLevel, Assessment, RegistrationToken } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { QUESTIONS, RESPONSE_OPTIONS } from './constants';
@@ -67,7 +72,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type View = 'home' | 'register' | 'login-manager' | 'manager-panel' | 'collaborator-login' | 'collaborator-panel' | 'tech-login' | 'tech-panel';
+type View = 'home' | 'register' | 'login-manager' | 'manager-panel' | 'collaborator-login' | 'collaborator-panel' | 'tech-login' | 'tech-panel' | 'token-validation';
 
 export default function App() {
   const [view, setView] = useState<View>('home');
@@ -131,6 +136,14 @@ export default function App() {
           {view === 'home' && (
             <motion.div key="view-home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <HomeView setView={setView} />
+            </motion.div>
+          )}
+          {view === 'token-validation' && (
+            <motion.div key="view-token-validation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <TokenValidationView 
+                setView={setView} 
+                showMessage={showMessage} 
+              />
             </motion.div>
           )}
           {view === 'register' && (
@@ -226,7 +239,7 @@ function HomeView({ setView }: { setView: (v: View) => void }) {
       shadow: 'shadow-indigo-200'
     },
     { 
-      id: 'register', 
+      id: 'token-validation', 
       label: 'REGISTRAR EMPRESA', 
       desc: 'Cadastre uma nova organização no sistema Axion.',
       icon: Building2, 
@@ -295,6 +308,106 @@ function HomeView({ setView }: { setView: (v: View) => void }) {
         ))}
       </motion.div>
     </div>
+  );
+}
+
+function TokenValidationView({ setView, showMessage }: { setView: (v: View) => void, showMessage: (t: string, type?: 'success' | 'error') => void }) {
+  const [token, setToken] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleValidate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const normalizedToken = token.toUpperCase().trim();
+    
+    if (!normalizedToken) {
+      showMessage('Por favor, insira o token.', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const q = query(
+        collection(db, 'registration_tokens'), 
+        where('code', '==', normalizedToken),
+        where('used', '==', false)
+      );
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        showMessage('Token inválido ou já utilizado.', 'error');
+        return;
+      }
+
+      const tokenDoc = querySnapshot.docs[0];
+      const tokenData = tokenDoc.data() as RegistrationToken;
+
+      // Check expiration
+      if (Date.now() > tokenData.expiresAt) {
+        showMessage('Este token expirou.', 'error');
+        // Optionally mark as used or delete
+        await updateDoc(doc(db, 'registration_tokens', tokenDoc.id), { used: true });
+        return;
+      }
+
+      // Valid token! Mark as used
+      await updateDoc(doc(db, 'registration_tokens', tokenDoc.id), { used: true });
+      
+      showMessage('TOKEN REGISTRADO COM SUCESSO', 'success');
+      setView('register');
+    } catch (error) {
+      console.error(error);
+      showMessage('Erro ao validar token.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="max-w-md mx-auto bg-white rounded-3xl shadow-xl p-10 mt-12 border border-slate-100"
+    >
+      <div className="text-center mb-8">
+        <div className="bg-blue-100 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 rotate-3">
+          <Key size={40} className="text-blue-600 -rotate-3" />
+        </div>
+        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Validação de Acesso</h2>
+        <p className="text-slate-500 mt-3 font-medium leading-relaxed">
+          Para garantir a segurança do sistema, o cadastro de novas empresas requer um token de autorização fornecido pelo Responsável Técnico.
+        </p>
+      </div>
+
+      <form onSubmit={handleValidate} className="space-y-6">
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-2 ml-1">Token de Autorização</label>
+          <input 
+            required
+            type="text"
+            placeholder="DIGITE SEU TOKEN AQUI"
+            className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all text-center font-black text-xl tracking-widest placeholder:text-slate-300 placeholder:font-bold placeholder:text-sm placeholder:tracking-normal"
+            value={token}
+            onChange={e => setToken(e.target.value.toUpperCase())}
+          />
+        </div>
+
+        <button 
+          disabled={loading}
+          type="submit"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-2xl shadow-lg shadow-blue-200 transition-all disabled:opacity-50 transform active:scale-95"
+        >
+          {loading ? 'VALIDANDO...' : 'VALIDAR TOKEN E CONTINUAR'}
+        </button>
+
+        <button 
+          type="button"
+          onClick={() => setView('home')}
+          className="w-full text-slate-400 font-bold hover:text-slate-600 transition-colors py-2"
+        >
+          Cancelar e Voltar
+        </button>
+      </form>
+    </motion.div>
   );
 }
 
@@ -1159,8 +1272,10 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [techResponsible, setTechResponsible] = useState<TechnicalResponsible | null>(null);
+  const [tokens, setTokens] = useState<RegistrationToken[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showTokenManager, setShowTokenManager] = useState(false);
 
   useEffect(() => {
     const unsubCompanies = onSnapshot(collection(db, 'companies'), (snapshot) => {
@@ -1173,9 +1288,14 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
       }
     });
 
+    const unsubTokens = onSnapshot(collection(db, 'registration_tokens'), (snapshot) => {
+      setTokens(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as RegistrationToken)));
+    });
+
     return () => {
       unsubCompanies();
       unsubTech();
+      unsubTokens();
     };
   }, []);
 
@@ -1223,6 +1343,37 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
     link.click();
     document.body.removeChild(link);
     showMessage('CSV exportado com sucesso!');
+  };
+
+  const generateToken = async () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    try {
+      await addDoc(collection(db, 'registration_tokens'), {
+        code,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + (10 * 24 * 60 * 60 * 1000), // 10 days
+        used: false
+      });
+      showMessage('Token gerado com sucesso!');
+    } catch (error) {
+      console.error(error);
+      showMessage('Erro ao gerar token.', 'error');
+    }
+  };
+
+  const deleteToken = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'registration_tokens', id));
+      showMessage('Token removido.');
+    } catch (error) {
+      console.error(error);
+      showMessage('Erro ao remover token.', 'error');
+    }
   };
 
   const exportDocx = async () => {
@@ -1447,6 +1598,13 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
         </div>
         <div className="flex gap-3">
           <button 
+            onClick={() => setShowTokenManager(!showTokenManager)}
+            className="px-6 py-3 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold rounded-xl transition-all flex items-center gap-2"
+          >
+            <Ticket size={20} />
+            {showTokenManager ? 'VER EMPRESAS' : 'GERENCIAR TOKENS'}
+          </button>
+          <button 
             onClick={() => setShowForm(true)}
             className="px-6 py-3 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold rounded-xl transition-all"
           >
@@ -1461,7 +1619,93 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      {showTokenManager ? (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100"
+        >
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Gerenciador de Tokens</h3>
+              <p className="text-slate-500 font-medium">Gere e gerencie tokens de acesso para novos cadastros.</p>
+            </div>
+            <button 
+              onClick={generateToken}
+              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-100 transition-all flex items-center gap-2 transform active:scale-95"
+            >
+              <Plus size={20} />
+              GERAR NOVO TOKEN
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {tokens.sort((a, b) => b.createdAt - a.createdAt).map(t => {
+              const isExpired = Date.now() > t.expiresAt;
+              const status = t.used ? 'USADO' : (isExpired ? 'EXPIRADO' : 'ATIVO');
+              
+              return (
+                <div key={t.id} className={cn(
+                  "p-6 rounded-2xl border-2 transition-all relative overflow-hidden group",
+                  t.used ? "bg-slate-50 border-slate-100 opacity-60" : 
+                  (isExpired ? "bg-rose-50 border-rose-100" : "bg-white border-slate-100 hover:border-blue-200 shadow-sm")
+                )}>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className={cn(
+                      "px-3 py-1 rounded-full text-[10px] font-black tracking-widest",
+                      t.used ? "bg-slate-200 text-slate-500" : 
+                      (isExpired ? "bg-rose-200 text-rose-600" : "bg-emerald-100 text-emerald-600")
+                    )}>
+                      {status}
+                    </span>
+                    <button 
+                      onClick={() => deleteToken(t.id!)}
+                      className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                  
+                  <div className="text-2xl font-black text-slate-800 tracking-[0.2em] mb-4">
+                    {t.code}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs text-slate-400 font-bold">
+                      <Clock size={14} />
+                      Expira em: {new Date(t.expiresAt).toLocaleDateString('pt-BR')}
+                    </div>
+                    {t.used && (
+                      <div className="flex items-center gap-2 text-xs text-slate-400 font-bold">
+                        <CheckCircle2 size={14} />
+                        Utilizado em: {new Date(t.createdAt).toLocaleDateString('pt-BR')}
+                      </div>
+                    )}
+                  </div>
+
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(t.code);
+                      showMessage('Token copiado!');
+                    }}
+                    className="absolute bottom-4 right-4 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-500 p-2 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Plus size={16} className="rotate-45" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {tokens.length === 0 && (
+            <div className="text-center py-20 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+              <Ticket size={48} className="text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-400 font-bold text-lg">Nenhum token gerado ainda.</p>
+            </div>
+          )}
+        </motion.div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Sidebar: Companies List */}
         <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col h-[600px]">
           <div className="p-4 border-b border-slate-100 bg-slate-50">
@@ -1617,8 +1861,9 @@ function TechPanelView({ setView, showMessage }: { setView: (v: View) => void, s
           )}
         </div>
       </div>
+    )}
 
-      {/* Form Modal */}
+    {/* Form Modal */}
       <AnimatePresence>
         {showForm && (
           <motion.div 

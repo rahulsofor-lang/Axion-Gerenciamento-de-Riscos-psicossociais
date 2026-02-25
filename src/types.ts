@@ -35,3 +35,11 @@ export interface DomainResult {
   probability: RiskLevel;
   classification: RiskLevel;
 }
+
+export interface RegistrationToken {
+  id?: string;
+  code: string;
+  createdAt: number;
+  expiresAt: number;
+  used: boolean;
+}
